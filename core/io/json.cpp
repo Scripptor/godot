@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2020 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2020 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 #include "json.h"
 
 #include "core/print_string.h"
+#include "core/math/math_funcs.h"
 
 const char *JSON::tk_name[TK_MAX] = {
 	"'{'",
@@ -39,7 +40,8 @@ const char *JSON::tk_name[TK_MAX] = {
 	"']'",
 	"identifier",
 	"string",
-	"number",
+	"int",
+	"float",
 	"':'",
 	"','",
 	"EOF",
@@ -70,7 +72,10 @@ String JSON::_print_var(const Variant &p_var, const String &p_indent, int p_cur_
 		case Variant::NIL: return "null";
 		case Variant::BOOL: return p_var.operator bool() ? "true" : "false";
 		case Variant::INT: return itos(p_var);
-		case Variant::REAL: return rtos(p_var);
+		case Variant::REAL:
+			if ((float)p_var == 0 || fmod(p_var, (int)p_var) == 0)
+				return rtos(p_var) + ".0";
+			return rtos(p_var);
 		case Variant::POOL_INT_ARRAY:
 		case Variant::POOL_REAL_ARRAY:
 		case Variant::POOL_STRING_ARRAY:
@@ -271,10 +276,28 @@ Error JSON::_get_token(const CharType *p_str, int &index, int p_len, Token &r_to
 				if (p_str[index] == '-' || (p_str[index] >= '0' && p_str[index] <= '9')) {
 					//a number
 					const CharType *rptr;
+					int idx = index+1;
+					bool isReal = false;
+					while (true) {
+						if (idx >= p_len-1)
+							break;
+						else if (p_str[idx] >= '0' && p_str[idx] <= '9') {
+							idx++;
+							continue;
+						} else if (p_str[idx] == '.') {
+							if (!isReal)
+								isReal = true;
+							// todo throw error for too many dots
+						}
+						else
+							break;
+						idx++;
+					}
 					double number = String::to_double(&p_str[index], &rptr);
-					index += (rptr - &p_str[index]);
-					r_token.type = TK_NUMBER;
+					r_token.type = isReal ? TK_FLOAT : TK_INT;
 					r_token.value = number;
+					
+					index += (rptr - &p_str[index]);
 					return OK;
 
 				} else if ((p_str[index] >= 'A' && p_str[index] <= 'Z') || (p_str[index] >= 'a' && p_str[index] <= 'z')) {
@@ -335,8 +358,10 @@ Error JSON::_parse_value(Variant &value, Token &token, const CharType *p_str, in
 		}
 		return OK;
 
-	} else if (token.type == TK_NUMBER) {
-
+	} else if (token.type == TK_INT) {
+		value = (int)token.value;
+		return OK;
+	} else if (token.type == TK_FLOAT) {
 		value = token.value;
 		return OK;
 	} else if (token.type == TK_STRING) {
